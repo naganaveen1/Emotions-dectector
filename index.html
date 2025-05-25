@@ -3,21 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Real-time Emotion Detector</title>
+    <title>Fast Emotion Detector</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         body {
             font-family: 'Inter', sans-serif;
-            overflow: hidden; /* Prevent scrollbars from flickering during load */
+            overflow: hidden;
+            background-color: #0f172a; /* Dark slate */
         }
         #video-container {
             position: relative;
             width: 100%;
-            max-width: 720px; /* Max video width */
-            aspect-ratio: 16 / 9; /* Maintain aspect ratio */
+            max-width: 640px; /* Slightly smaller for faster processing */
+            aspect-ratio: 16 / 9;
             margin: auto;
+            background-color: #000;
+            border-radius: 0.75rem;
         }
         #video, #overlay {
             position: absolute;
@@ -25,291 +28,257 @@
             left: 0;
             width: 100%;
             height: 100%;
-            border-radius: 0.75rem; /* Tailwind's rounded-xl */
+            border-radius: 0.75rem;
         }
         #video {
-            object-fit: cover; /* Cover the container, might crop */
+            object-fit: cover;
+            transform: scaleX(-1); /* Mirror effect */
+        }
+        #overlay {
+             transform: scaleX(-1); /* Mirror canvas to match video */
         }
         .emotion-emoji {
-            font-size: 3rem; /* Larger emoji */
+            font-size: 3rem;
             line-height: 1;
         }
-        .status-dot {
-            display: inline-block;
-            width: 10px;
-            height: 10px;
+        /* Loading Spinner */
+        .loader {
+            border: 5px solid #384252; /* Lighter slate */
+            border-top: 5px solid #3498db; /* Blue */
             border-radius: 50%;
-            margin-right: 8px;
-            animation: pulse 1.5s infinite ease-in-out;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px auto;
         }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
+        .hidden { display: none; }
     </style>
 </head>
-<body class="bg-gradient-to-br from-slate-900 to-slate-800 text-slate-100 flex flex-col items-center justify-center min-h-screen p-4 selection:bg-sky-500 selection:text-white">
+<body class="bg-slate-900 text-slate-100 flex flex-col items-center justify-center min-h-screen p-4 selection:bg-sky-500 selection:text-white">
 
-    <div class="w-full max-w-3xl bg-slate-800 bg-opacity-50 backdrop-blur-md shadow-2xl rounded-xl p-6 md:p-8 space-y-6">
-        <header class="text-center">
-            <h1 class="text-3xl md:text-4xl font-bold text-sky-400">Emotion Detector</h1>
-            <p class="text-slate-400 mt-2">Let's see how you're feeling in real-time!</p>
-        </header>
+    <div class="w-full max-w-xl bg-slate-800 bg-opacity-60 backdrop-blur-lg shadow-2xl rounded-xl p-6 md:p-8 space-y-5 text-center">
+        <h1 class="text-3xl font-bold text-sky-400">Emotion Detector AI</h1>
+        <p class="text-slate-400">Look into the camera and see the magic!</p>
 
-        <div id="video-container" class="shadow-lg rounded-xl">
+        <div id="video-container" class="shadow-lg rounded-xl overflow-hidden">
             <video id="video" autoplay muted playsinline></video>
             <canvas id="overlay"></canvas>
         </div>
 
-        <div id="status-container" class="text-center py-4 space-y-2">
-            <div id="loading-message" class="flex items-center justify-center text-lg text-sky-300">
-                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-sky-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                Loading models & starting camera...
+        <div id="status-container" class="py-4 space-y-3">
+            <div id="loading-container" class="text-sky-300">
+                <div class="loader"></div>
+                <p id="loading-text">Initializing...</p>
             </div>
-            <div id="emotion-display" class="text-center hidden">
-                <p class="text-xl md:text-2xl font-semibold text-slate-300">Current Emotion:</p>
-                <p id="emotion-text" class="text-4xl md:text-5xl font-bold text-sky-400 mt-1">Neutral</p>
-                <p id="emotion-emoji" class="emotion-emoji mt-2">😐</p>
+            <div id="emotion-display" class="hidden">
+                <p class="text-xl font-semibold text-slate-300">Detected Emotion:</p>
+                <p id="emotion-text" class="text-4xl font-bold text-white mt-1">...</p>
+                <p id="emotion-emoji" class="emotion-emoji mt-2">🤔</p>
             </div>
             <div id="error-message" class="text-red-400 font-semibold hidden"></div>
         </div>
 
-         <div class="text-center text-xs text-slate-500 pt-4">
-            <p>Powered by <a href="https://github.com/justadudewhohacks/face-api.js" target="_blank" rel="noopener noreferrer" class="hover:text-sky-400 underline">face-api.js</a> (original)</p>
-            <p>No video data is stored or sent anywhere. All processing happens in your browser.</p>
-        </div>
+        <p class="text-xs text-slate-500 pt-3">
+            Powered by <a href="https://github.com/vladmandic/face-api" target="_blank" rel="noopener noreferrer" class="hover:text-sky-400 underline">face-api.js</a>. Privacy: All processing is local.
+        </p>
     </div>
 
     <script>
         const video = document.getElementById('video');
         const overlayCanvas = document.getElementById('overlay');
-        const loadingMessage = document.getElementById('loading-message');
+        const loadingContainer = document.getElementById('loading-container');
+        const loadingText = document.getElementById('loading-text');
         const emotionDisplay = document.getElementById('emotion-display');
         const emotionText = document.getElementById('emotion-text');
         const emotionEmoji = document.getElementById('emotion-emoji');
         const errorMessage = document.getElementById('error-message');
         const videoContainer = document.getElementById('video-container');
 
-        // Using the models directory compatible with face-api.js v0.22.2
-        // This typically means models are in a '/models' subdirectory relative to your HTML,
-        // or you use an absolute path to a CDN that hosts them for this version.
-        // For simplicity with CDN, we'll assume the library can find them from its own CDN path if not specified,
-        // or we can point to a general CDN for face-api.js models.
-        // The original library often expected models in a local 'models' folder.
-        // Let's try pointing to the same CDN structure as the library itself for models.
-        const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
+        // Corrected MODEL_URL for @vladmandic/face-api
+        const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model';
 
-
-        // Emotion mapping
         const emotionMap = {
             neutral: { text: 'Neutral', emoji: '😐' },
             happy: { text: 'Happy', emoji: '😄' },
             sad: { text: 'Sad', emoji: '😢' },
             angry: { text: 'Angry', emoji: '😠' },
-            fearful: { text: 'Fearful', emoji: '😨' }, // Note: 'fearful' is often 'fear' in older models
+            fearful: { text: 'Fearful', emoji: '😨' },
             disgusted: { text: 'Disgusted', emoji: '🤢' },
             surprised: { text: 'Surprised', emoji: '😲' }
         };
 
+        function updateLoadingText(text) {
+            console.log("Status:", text);
+            loadingText.textContent = text;
+        }
+
+        function showError(message) {
+            console.error("Error:", message);
+            loadingContainer.classList.add('hidden');
+            emotionDisplay.classList.add('hidden');
+            errorMessage.textContent = message;
+            errorMessage.classList.remove('hidden');
+        }
+
         async function loadModels() {
+            updateLoadingText("Checking AI library...");
+            if (typeof faceapi === 'undefined') {
+                showError("Core AI library failed to load. Please check your internet connection or ad-blockers and refresh.");
+                return false;
+            }
             try {
-                // Check if faceapi is available
-                if (typeof faceapi === 'undefined') {
-                    console.error("face-api.js not loaded yet!");
-                    showError("Core library failed to load. Please refresh.");
-                    return false;
-                }
-                console.log("faceapi object is available. Loading models...");
-                
-                // Load models
+                updateLoadingText("Loading AI Models (Tiny)...");
                 await Promise.all([
                     faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-                    faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL),
+                    faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL), // Uses TinyNet for landmarks
                     faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL)
                 ]);
-                console.log("Models loaded successfully");
+                updateLoadingText("Models Loaded!");
                 return true;
             } catch (error) {
-                console.error("Error loading models:", error);
-                showError(`Failed to load AI models from ${MODEL_URL}. Error: ${error.message}. Please refresh the page.`);
+                showError(`Failed to load AI models. Please refresh. (${error.message}, URL: ${MODEL_URL})`);
                 return false;
             }
         }
 
         async function startVideo() {
+            updateLoadingText("Requesting Camera Access...");
             try {
                 if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                    showError("Camera API not supported by your browser.");
+                    showError("Camera API not supported. Please use a modern browser.");
                     return false;
                 }
-                const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
                 video.srcObject = stream;
-                console.log("Camera access granted");
+                updateLoadingText("Starting Camera Feed...");
                 return new Promise((resolve) => {
                     video.onloadedmetadata = () => {
-                        console.log("Video metadata loaded");
-                        video.width = video.videoWidth; // Set video element dimensions
-                        video.height = video.videoHeight;
-                        overlayCanvas.width = video.videoWidth;
-                        overlayCanvas.height = video.videoHeight;
+                        console.log("Camera feed started.");
                         resolve(true);
                     };
+                    video.onerror = () => {
+                         showError("Error with video feed.");
+                         resolve(false);
+                    }
                 });
             } catch (err) {
-                console.error("Error accessing camera:", err);
                 if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-                    showError("Camera access denied. Please allow camera access in your browser settings and refresh.");
+                    showError("Camera access denied. Please allow camera access and refresh.");
                 } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
-                    showError("No camera found. Please ensure a camera is connected and enabled.");
+                    showError("No camera found. Please connect a camera.");
                 } else {
-                    showError("Could not access camera. Please check permissions and refresh.");
+                    showError(`Could not access camera. (${err.name})`);
                 }
                 return false;
             }
         }
 
-        function showError(message) {
-            loadingMessage.classList.add('hidden');
-            emotionDisplay.classList.add('hidden');
-            errorMessage.textContent = message;
-            errorMessage.classList.remove('hidden');
-            console.error("Displayed Error:", message);
-        }
-
         function updateEmotionDisplay(detections) {
             if (detections && detections.length > 0) {
                 const expressions = detections[0].expressions;
-                if (expressions) {
-                    let dominantEmotion = 'neutral';
-                    let maxScore = 0;
-                    // The exact emotion labels might differ slightly with older face-api.js versions
-                    // Common ones are: neutral, happy, sad, angry, surprised, disgusted, fear (or fearful)
-                    for (const [emotion, score] of Object.entries(expressions)) {
-                        if (score > maxScore) {
-                            maxScore = score;
-                            dominantEmotion = emotion;
-                        }
-                    }
-                    
-                    const emotionData = emotionMap[dominantEmotion.toLowerCase()] || emotionMap.neutral;
-                    emotionText.textContent = emotionData.text;
-                    emotionEmoji.textContent = emotionData.emoji;
-                    
-                    if (emotionDisplay.classList.contains('hidden')) {
-                        emotionDisplay.classList.remove('hidden');
-                        loadingMessage.classList.add('hidden');
-                        errorMessage.classList.add('hidden');
+                let dominantEmotion = 'neutral';
+                let maxScore = 0;
+                for (const [emotion, score] of Object.entries(expressions)) {
+                    if (score > maxScore) {
+                        maxScore = score;
+                        dominantEmotion = emotion;
                     }
                 }
+                const emotionData = emotionMap[dominantEmotion] || emotionMap.neutral;
+                emotionText.textContent = emotionData.text;
+                emotionEmoji.textContent = emotionData.emoji;
             } else {
-                if (!loadingMessage.classList.contains('hidden') || !errorMessage.classList.contains('hidden')) {
-                    // Avoid overwriting critical error or initial loading message
-                } else {
-                    emotionText.textContent = "No Face Detected";
-                    emotionEmoji.textContent = "🤔";
+                emotionText.textContent = "Searching...";
+                emotionEmoji.textContent = "🤔";
+            }
+        }
+
+        function startDetection() {
+            const displaySize = { width: videoContainer.clientWidth, height: videoContainer.clientHeight };
+            faceapi.matchDimensions(overlayCanvas, displaySize);
+            const context = overlayCanvas.getContext('2d', { willReadFrequently: true }); 
+
+            // Using TinyFaceDetectorOptions with a smaller input size for potentially faster processing
+            const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 });
+
+            const detect = async () => {
+                if (video.paused || video.ended || !video.srcObject || video.readyState < 3) { // Added more checks
+                    requestAnimationFrame(detect); // Keep trying if video not fully ready
+                    return;
                 }
-            }
+
+                const detections = await faceapi.detectAllFaces(video, options)
+                    .withFaceLandmarks(true) // Use true for the tiny model
+                    .withFaceExpressions();
+
+                const resizedDetections = faceapi.resizeResults(detections, displaySize);
+
+                context.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+                // Optional: Draw detections - good for debugging, but can impact performance
+                // faceapi.draw.drawDetections(overlayCanvas, resizedDetections);
+                // faceapi.draw.drawFaceLandmarks(overlayCanvas, resizedDetections);
+                // faceapi.draw.drawFaceExpressions(overlayCanvas, resizedDetections, 0.05);
+
+                updateEmotionDisplay(resizedDetections);
+                requestAnimationFrame(detect);
+            };
+
+            detect(); // Start the loop
         }
 
-        async function onPlay() {
-            // Ensure models are loaded before proceeding
-            if (!faceapi.nets.tinyFaceDetector.params || !faceapi.nets.faceLandmark68TinyNet.params || !faceapi.nets.faceExpressionNet.params) {
-                console.log("Models not ready yet, retrying detection initiation...");
-                return setTimeout(() => onPlay(), 200); // Retry after a short delay
-            }
+        async function initializeApp() {
+            const modelsOk = await loadModels();
+            if (!modelsOk) return;
 
-            if (video.paused || video.ended) {
-                return setTimeout(() => onPlay(), 100);
-            }
-
-            const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 });
-            
-            const containerWidth = videoContainer.clientWidth;
-            const containerHeight = videoContainer.clientHeight;
-
-            // Ensure canvas dimensions match the video container for proper display scaling
-            if (overlayCanvas.width !== containerWidth || overlayCanvas.height !== containerHeight) {
-                overlayCanvas.width = containerWidth;
-                overlayCanvas.height = containerHeight;
-                faceapi.matchDimensions(overlayCanvas, { width: containerWidth, height: containerHeight });
-            }
-            
-            const detections = await faceapi.detectAllFaces(video, options)
-                .withFaceLandmarks(true)
-                .withFaceExpressions();
-            
-            // Resize detections to match the overlay canvas display size
-            const resizedDetections = faceapi.resizeResults(detections, { width: containerWidth, height: containerHeight });
-
-            overlayCanvas.getContext('2d').clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-            
-            // Optional: Draw detections for debugging
-            // faceapi.draw.drawDetections(overlayCanvas, resizedDetections);
-            // faceapi.draw.drawFaceLandmarks(overlayCanvas, resizedDetections);
-            // faceapi.draw.drawFaceExpressions(overlayCanvas, resizedDetections, 0.05);
-
-
-            updateEmotionDisplay(resizedDetections);
-
-            requestAnimationFrame(onPlay);
-        }
-
-        async function main() {
-            const modelsLoaded = await loadModels();
-            if (!modelsLoaded) {
-                console.log("Main function: Model loading failed.");
-                return;
-            }
-            console.log("Main function: Models reported as loaded.");
-
-            const videoStarted = await startVideo();
-            if (!videoStarted) {
-                console.log("Main function: Video start failed.");
-                return;
-            }
-            console.log("Main function: Video reported as started.");
-
+            const videoOk = await startVideo();
+            if (!videoOk) return;
 
             video.addEventListener('play', () => {
-                console.log("Video 'play' event triggered.");
-                loadingMessage.classList.add('hidden');
-                if (errorMessage.classList.contains('hidden')) { // Only show emotion if no error
-                    emotionDisplay.classList.remove('hidden');
-                }
-                onPlay(); // Start detection loop
+                console.log("Video play event triggered.");
+                loadingContainer.classList.add('hidden');
+                errorMessage.classList.add('hidden');
+                emotionDisplay.classList.remove('hidden');
+                startDetection();
             });
             
-            // Fallback if 'play' event doesn't fire quickly
-            const checkVideoReady = setInterval(() => {
-                if (video.readyState >= 3) { // HAVE_FUTURE_DATA or HAVE_ENOUGH_DATA
-                    clearInterval(checkVideoReady);
-                    console.log("Video readyState sufficient.");
-                    if (video.paused) {
-                        console.log("Video was paused, attempting to play...");
-                        video.play().catch(e => {
-                            console.warn("Autoplay was prevented:", e);
-                            showError("Could not autoplay video. Please click the video or enable autoplay in your browser.");
-                        });
-                    }
-                    // The 'play' event listener should handle starting onPlay
+            video.addEventListener('loadeddata', () => { // Added listener for loadeddata
+                console.log("Video data loaded.");
+                 // Attempt to play if not already playing (addresses some autoplay policies)
+                if (video.paused) {
+                    video.play().catch(e => {
+                        console.warn("Autoplay blocked on loadeddata:", e);
+                        showError("Click the video or allow autoplay to start.");
+                    });
                 }
-            }, 200);
+            });
+
+
+            // Ensure video tries to play if not already handled by autoplay
+            try {
+                 if(video.paused) { // Only try to play if it's paused
+                    await video.play();
+                 }
+            } catch (playError) {
+                 console.warn("Initial autoplay attempt blocked:", playError);
+                 // The 'play' event listener or a user interaction will be needed.
+                 // No error shown here as 'play' listener will handle it or user needs to interact.
+            }
         }
-        
+
         // Adjust canvas on resize
         window.addEventListener('resize', () => {
-            if (video.readyState > 0 && video.srcObject) { // Only if video has started
+            if (video.srcObject && video.readyState > 0) { // Check if video is active
                 const displaySize = { width: videoContainer.clientWidth, height: videoContainer.clientHeight };
                 faceapi.matchDimensions(overlayCanvas, displaySize);
-                // If onPlay is running, it will adjust. If not, this pre-adjusts.
             }
         });
 
-        // It's safer to wait for the DOM to be fully loaded before running main
-        document.addEventListener('DOMContentLoaded', main);
+        // Start everything when the DOM is ready
+        document.addEventListener('DOMContentLoaded', initializeApp);
     </script>
 </body>
 </html>
