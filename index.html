@@ -9,7 +9,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.18.9/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+  <script src="https://unpkg.com/face-api.js@0.22.2/dist/face-api.min.js"></script>
   <style>
     body {
       margin: 0;
@@ -69,56 +69,77 @@
         }
       };
 
+      const loadModels = async () => {
+        const modelUrl = 'https://unpkg.com/face-api.js@0.22.2/weights';
+        try {
+          await Promise.all([
+            faceapi.nets.tinyFaceDetector.loadFromUri(modelUrl).catch(err => {
+              throw new Error(`Failed to load TinyFaceDetector: ${err.message}`);
+            }),
+            faceapi.nets.faceLandmark68Net.loadFromUri(modelUrl).catch(err => {
+              throw new Error(`Failed to load FaceLandmark68Net: ${err.message}`);
+            }),
+            faceapi.nets.faceExpressionNet.loadFromUri(modelUrl).catch(err => {
+              throw new Error(`Failed to load FaceExpressionNet: ${err.message}`);
+            }),
+          ]);
+          return true;
+        } catch (err) {
+          throw err;
+        }
+      };
+
+      const initializeApp = async () => {
+        try {
+          await loadModels();
+          await startCamera();
+          setIsLoading(false);
+
+          // Start emotion detection when video plays
+          videoRef.current.addEventListener('play', () => {
+            const canvas = canvasRef.current;
+            const displaySize = { width: videoRef.current.width, height: videoRef.current.height };
+            faceapi.matchDimensions(canvas, displaySize);
+
+            setInterval(async () => {
+              const detections = await faceapi
+                .detectAllFaces(videoRef.current, new faceapi.TinyFaceDetectorOptions())
+                .withFaceLandmarks()
+                .withFaceExpressions();
+
+              if (detections.length > 0) {
+                const expressions = detections[0].expressions;
+                const maxExpression = Object.keys(expressions).reduce((a, b) =>
+                  expressions[a] > expressions[b] ? a : b
+                );
+                setEmotion(maxExpression.charAt(0).toUpperCase() + maxExpression.slice(1));
+                setConfidence((expressions[maxExpression] * 100).toFixed(2));
+              } else {
+                setEmotion(null);
+                setConfidence(null);
+              }
+
+              const resizedDetections = faceapi.resizeResults(detections, displaySize);
+              canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+              faceapi.draw.drawDetections(canvas, resizedDetections);
+              faceapi.draw.drawFaceExpressions(canvas, resizedDetections);
+            }, 100);
+          });
+        } catch (err) {
+          setError(`Initialization failed: ${err.message}. Please check your network or try again.`);
+          setIsLoading(false);
+        }
+      };
+
       useEffect(() => {
-        const loadModelsAndStartVideo = async () => {
-          try {
-            // Load face-api.js models
-            await Promise.all([
-              faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/models'),
-              faceapi.nets.faceLandmark68Net.loadFromUri('https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/models'),
-              faceapi.nets.faceExpressionNet.loadFromUri('https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/models'),
-            ]);
-
-            await startCamera();
-
-            // Start emotion detection when video plays
-            videoRef.current.addEventListener('play', () => {
-              const canvas = canvasRef.current;
-              const displaySize = { width: videoRef.current.width, height: videoRef.current.height };
-              faceapi.matchDimensions(canvas, displaySize);
-
-              setInterval(async () => {
-                const detections = await faceapi
-                  .detectAllFaces(videoRef.current, new faceapi.TinyFaceDetectorOptions())
-                  .withFaceLandmarks()
-                  .withFaceExpressions();
-
-                if (detections.length > 0) {
-                  const expressions = detections[0].expressions;
-                  const maxExpression = Object.keys(expressions).reduce((a, b) =>
-                    expressions[a] > expressions[b] ? a : b
-                  );
-                  setEmotion(maxExpression.charAt(0).toUpperCase() + maxExpression.slice(1));
-                  setConfidence((expressions[maxExpression] * 100).toFixed(2));
-                } else {
-                  setEmotion(null);
-                  setConfidence(null);
-                }
-
-                const resizedDetections = faceapi.resizeResults(detections, displaySize);
-                canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
-                faceapi.draw.drawDetections(canvas, resizedDetections);
-                faceapi.draw.drawFaceExpressions(canvas, resizedDetections);
-              }, 100);
-            });
-          } catch (err) {
-            setError('Failed to load models or initialize camera: ' + err.message);
-            setIsLoading(false);
-          }
-        };
-
-        loadModelsAndStartVideo();
+        initializeApp();
       }, []);
+
+      const retryInitialization = () => {
+        setIsLoading(true);
+        setError(null);
+        initializeApp();
+      };
 
       return (
         <div className="flex flex-col items-center justify-center min-h-screen p-4">
@@ -133,9 +154,9 @@
               {error}
               <button
                 className="mt-4 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
-                onClick={startCamera}
+                onClick={retryInitialization}
               >
-                Retry Camera Access
+                Retry Loading
               </button>
             </div>
           )}
