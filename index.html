@@ -40,6 +40,34 @@
       const [confidence, setConfidence] = useState(null);
       const [isLoading, setIsLoading] = useState(true);
       const [error, setError] = useState(null);
+      const [cameraRequested, setCameraRequested] = useState(false);
+
+      const startCamera = async () => {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          setError('Camera access is not supported in this browser.');
+          setIsLoading(false);
+          return;
+        }
+
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+            setCameraRequested(true);
+          }
+        } catch (err) {
+          let errorMessage = 'Failed to access camera. Please grant camera permissions.';
+          if (err.name === 'NotAllowedError') {
+            errorMessage = 'Camera access denied. Please allow camera access in your browser settings.';
+          } else if (err.name === 'NotFoundError') {
+            errorMessage = 'No camera found. Please ensure a camera is connected.';
+          } else if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+            errorMessage = 'Camera access requires HTTPS. Please host this website on a secure server or localhost.';
+          }
+          setError(errorMessage);
+          setIsLoading(false);
+        }
+      };
 
       useEffect(() => {
         const loadModelsAndStartVideo = async () => {
@@ -51,12 +79,9 @@
               faceapi.nets.faceExpressionNet.loadFromUri('https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/models'),
             ]);
 
-            // Request camera access
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-            videoRef.current.srcObject = stream;
-            setIsLoading(false);
+            await startCamera();
 
-            // Start emotion detection
+            // Start emotion detection when video plays
             videoRef.current.addEventListener('play', () => {
               const canvas = canvasRef.current;
               const displaySize = { width: videoRef.current.width, height: videoRef.current.height };
@@ -87,7 +112,7 @@
               }, 100);
             });
           } catch (err) {
-            setError('Failed to access camera or load models. Please ensure camera access is granted.');
+            setError('Failed to load models or initialize camera: ' + err.message);
             setIsLoading(false);
           }
         };
@@ -104,7 +129,15 @@
             <div className="text-xl text-gray-300 animate-pulse">Loading models...</div>
           )}
           {error && (
-            <div className="text-red-500 text-lg mb-4">{error}</div>
+            <div className="text-red-500 text-lg mb-4 text-center">
+              {error}
+              <button
+                className="mt-4 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
+                onClick={startCamera}
+              >
+                Retry Camera Access
+              </button>
+            </div>
           )}
           <div className="relative bg-gray-800 rounded-lg shadow-lg overflow-hidden">
             <video
